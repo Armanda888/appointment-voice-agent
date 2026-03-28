@@ -24,7 +24,7 @@ class AppointmentModel {
   }
 
   async createTables() {
-    const createTableSQL = `
+    const createAppointmentsTableSQL = `
       CREATE TABLE IF NOT EXISTS appointments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_user_id TEXT NOT NULL,
@@ -46,8 +46,31 @@ class AppointmentModel {
       )
     `;
 
+    const createInstitutesTableSQL = `
+      CREATE TABLE IF NOT EXISTS institutes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL,
+        address TEXT,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    try {
+      await this.runSQL(createAppointmentsTableSQL);
+      await this.runSQL(createInstitutesTableSQL);
+      logger.info('Appointments and institutes tables ready');
+    } catch (err) {
+      logger.error('Error creating tables:', err);
+      throw err;
+    }
+  }
+
+  runSQL(sql) {
     return new Promise((resolve, reject) => {
-      this.db.run(createTableSQL, (err) => {
+      this.db.run(sql, (err) => {
         if (err) {
           logger.error('Error creating table:', err);
           reject(err);
@@ -210,6 +233,99 @@ class AppointmentModel {
           reject(err);
         } else {
           resolve(rows);
+        }
+      });
+    });
+  }
+
+  // Institute management methods
+  async addInstitute(institute) {
+    const { name, phone, address, notes } = institute;
+    
+    const sql = `
+      INSERT INTO institutes (name, phone, address, notes)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        phone = excluded.phone,
+        address = excluded.address,
+        notes = excluded.notes,
+        updated_at = CURRENT_TIMESTAMP
+    `;
+
+    return new Promise((resolve, reject) => {
+      this.db.run(sql, [name, phone, address, notes], function(err) {
+        if (err) {
+          logger.error('Error adding institute:', err);
+          reject(err);
+        } else {
+          logger.info(`Added/updated institute: ${name}`);
+          resolve(this.lastID);
+        }
+      });
+    });
+  }
+
+  async getInstituteByName(name) {
+    const sql = 'SELECT * FROM institutes WHERE name = ? COLLATE NOCASE';
+    
+    return new Promise((resolve, reject) => {
+      this.db.get(sql, [name], (err, row) => {
+        if (err) {
+          logger.error('Error getting institute:', err);
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      });
+    });
+  }
+
+  async searchInstitutes(searchTerm) {
+    const sql = `
+      SELECT * FROM institutes 
+      WHERE name LIKE ? COLLATE NOCASE
+      ORDER BY name
+      LIMIT 10
+    `;
+    
+    return new Promise((resolve, reject) => {
+      this.db.all(sql, [`%${searchTerm}%`], (err, rows) => {
+        if (err) {
+          logger.error('Error searching institutes:', err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      });
+    });
+  }
+
+  async getAllInstitutes() {
+    const sql = 'SELECT * FROM institutes ORDER BY name';
+    
+    return new Promise((resolve, reject) => {
+      this.db.all(sql, [], (err, rows) => {
+        if (err) {
+          logger.error('Error getting all institutes:', err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      });
+    });
+  }
+
+  async deleteInstitute(name) {
+    const sql = 'DELETE FROM institutes WHERE name = ? COLLATE NOCASE';
+    
+    return new Promise((resolve, reject) => {
+      this.db.run(sql, [name], function(err) {
+        if (err) {
+          logger.error('Error deleting institute:', err);
+          reject(err);
+        } else {
+          logger.info(`Deleted institute: ${name}`);
+          resolve(this.changes);
         }
       });
     });

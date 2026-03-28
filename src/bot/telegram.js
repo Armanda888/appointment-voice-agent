@@ -23,6 +23,11 @@ class TelegramBot {
     // Cancel appointment command
     this.bot.command('cancel', this.handleCancel.bind(this));
     
+    // Institute management commands
+    this.bot.command('addinstitute', this.handleAddInstitute.bind(this));
+    this.bot.command('institutes', this.handleListInstitutes.bind(this));
+    this.bot.command('removeinstitute', this.handleRemoveInstitute.bind(this));
+    
     // Handle text messages
     this.bot.on('text', this.handleTextMessage.bind(this));
     
@@ -53,6 +58,9 @@ Commands:
 /help - Get help and examples
 /myappointments - View your recent appointments
 /cancel <appointment_id> - Cancel an appointment
+/institutes - List saved institutes
+/addinstitute <name> <phone> - Add an institute
+/removeinstitute <name> - Remove an institute
 
 Let's get started!`;
 
@@ -70,9 +78,9 @@ Just send me a natural message with the details:
 
 **What I need:**
 - Service type (haircut, dental, dinner, etc.)
-- Institute name
+- Institute name (I'll look up the phone number if it's saved)
 - Preferred date and time
-- Phone number
+- Phone number (only needed for new institutes)
 
 **Tips:**
 - You can be flexible with time: "morning", "afternoon", "evening"
@@ -158,6 +166,76 @@ Need more help? Just ask!`;
     }
   }
 
+  async handleAddInstitute(ctx) {
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length < 2) {
+      await ctx.reply('Usage: /addinstitute <name> <phone>\nExample: /addinstitute "Salon Fancy" 4046978168');
+      return;
+    }
+
+    // Last argument is phone, everything before is name
+    const phone = args[args.length - 1];
+    let name = args.slice(0, -1).join(' ');
+    
+    // Clean up name (remove quotes, extra spaces)
+    name = name.replace(/["']/g, '').trim();
+
+    try {
+      await appointmentModel.addInstitute({
+        name: name,
+        phone: phone.replace(/\D/g, '') // Remove non-digits
+      });
+      await ctx.reply(`✅ Added "${name}" with phone ${phone}`);
+    } catch (error) {
+      logger.error('Error adding institute:', error);
+      await ctx.reply('Sorry, I couldn\'t add the institute. Please try again.');
+    }
+  }
+
+  async handleListInstitutes(ctx) {
+    try {
+      const institutes = await appointmentModel.getAllInstitutes();
+      
+      if (institutes.length === 0) {
+        await ctx.reply('No institutes saved yet. Use /addinstitute to add one.');
+        return;
+      }
+
+      let message = '🏢 **Saved Institutes:**\n\n';
+      institutes.forEach((inst, index) => {
+        message += `${index + 1}. **${inst.name}**\n`;
+        message += `   📞 ${inst.phone}\n\n`;
+      });
+
+      await ctx.reply(message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      logger.error('Error listing institutes:', error);
+      await ctx.reply('Sorry, I couldn\'t fetch the institutes. Please try again.');
+    }
+  }
+
+  async handleRemoveInstitute(ctx) {
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length < 1) {
+      await ctx.reply('Usage: /removeinstitute <name>\nExample: /removeinstitute "Salon Fancy"');
+      return;
+    }
+
+    const name = args.join(' ');
+
+    try {
+      const deleted = await appointmentModel.deleteInstitute(name);
+      if (deleted > 0) {
+        await ctx.reply(`✅ Removed "${name}"`);
+      } else {
+        await ctx.reply(`❌ Institute "${name}" not found`);
+      }
+    } catch (error) {
+      logger.error('Error removing institute:', error);
+      await ctx.reply('Sorry, I couldn\'t remove the institute. Please try again.');
+    }
+  }
+
   async handleTextMessage(ctx) {
     const userId = ctx.from.id.toString();
     const text = ctx.message.text;
@@ -194,15 +272,44 @@ Need more help? Just ask!`;
         return;
       }
 
+      // Look up institute in directory if phone not provided
+      let phone = details.phone;
+      if (!phone && details.instituteName) {
+        // Clean up institute name (remove extra spaces, quotes)
+        const cleanName = details.instituteName.replace(/["']/g, '').trim();
+        
+        logger.info(`Looking up institute: "${cleanName}"`);
+        
+        // Try exact match first
+        let institute = await appointmentModel.getInstituteByName(cleanName);
+        
+        // If no exact match, try searching
+        if (!institute) {
+          const searchResults = await appointmentModel.searchInstitutes(cleanName);
+          if (searchResults.length > 0) {
+            // Use the best match (first result)
+            institute = searchResults[0];
+            logger.info(`Found institute via search: "${institute.name}"`);
+          }
+        }
+        
+        if (institute) {
+          phone = institute.phone;
+          logger.info(`Found institute "${institute.name}" with phone ${phone}`);
+        } else {
+          logger.warn(`No institute found for "${cleanName}"`);
+        }
+      }
+
       // Store in session
       const session = {
-        state: details.phone ? 'awaiting_confirmation' : 'awaiting_phone',
+        state: phone ? 'awaiting_confirmation' : 'awaiting_phone',
         data: {
           telegram_user_id: ctx.from.id.toString(),
           telegram_chat_id: ctx.chat.id.toString(),
           service: details.service,
           institute_name: details.instituteName,
-          institute_phone: details.phone,
+          institute_phone: phone,
           preferred_date: details.date,
           preferred_time: details.time,
           customer_name: ctx.from.first_name || ctx.from.username || 'Customer'
@@ -211,8 +318,8 @@ Need more help? Just ask!`;
 
       this.userSessions.set(ctx.from.id.toString(), session);
 
-      if (!details.phone) {
-        await ctx.reply(`I need the phone number for ${details.instituteName}. Please provide it:`);
+      if (!phone) {
+        await ctx.reply(`I don't have a phone number for "${details.instituteName}".\n\nPlease provide it, or add it first with:\n/addinstitute "${details.instituteName}" <phone>`);
         return;
       }
 
@@ -243,16 +350,21 @@ Need more help? Just ask!`;
 
     // Extract institute name (text after "at" or "with")
     let instituteName = null;
-    const instituteMatch = text.match(/(?:at|with)\s+([A-Za-z0-9\s&'\.]+?)(?:\s+(?:for|on|tomorrow|today|next|call|phone|at\s+\d)|\s*,|\s*$)/i);
+    const instituteMatch = text.match(/(?:at|with)\s+([A-Za-z0-9\s&'\.]+?)(?:\s+(?:for|on|tomorrow|today|next|call|phone|number|#|from|between)|\s*,|\s*$)/i);
     if (instituteMatch) {
       instituteName = instituteMatch[1].trim();
     }
 
-    // Extract phone number
+    // Extract phone number - must look like a real phone number
     let phone = null;
-    const phoneMatch = text.match(/(?:call|phone|number|#)\s*:?\s*(\+?\d[\d\s\-\(\)\.]{7,})/i);
+    // Match phone numbers: 555-123-4567, (555) 123-4567, 5551234567, +1 555 123 4567
+    const phoneMatch = text.match(/(?:call|phone|number|#)?\s*:?\s*(\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/i);
     if (phoneMatch) {
       phone = phoneMatch[1].replace(/[\s\-\(\)\.]/g, '');
+      // Validate it's a reasonable phone number (7-15 digits)
+      if (phone.length < 7 || phone.length > 15) {
+        phone = null;
+      }
     }
 
     // Extract date
@@ -274,19 +386,29 @@ Need more help? Just ask!`;
       }
     }
 
-    // Extract time
+    // Extract time - check for time ranges first (e.g., "from 9am to 5pm")
     let time = null;
-    const timePatterns = [
-      /(\d{1,2}):(\d{2})\s*(am|pm)/i,
-      /(\d{1,2})\s*(am|pm)/i,
-      /(morning|afternoon|evening|noon|night)/i
-    ];
+    
+    // Look for time ranges like "from 9am to 5pm" or "between 9am and 5pm"
+    const timeRangeMatch = text.match(/(?:from|between)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s+(?:to|and|until)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
+    if (timeRangeMatch) {
+      time = `${timeRangeMatch[1]} - ${timeRangeMatch[2]}`;
+    }
+    
+    // If no time range found, look for single time
+    if (!time) {
+      const timePatterns = [
+        /(\d{1,2}):(\d{2})\s*(am|pm)/i,
+        /(\d{1,2})\s*(am|pm)/i,
+        /(morning|afternoon|evening|noon|night)/i
+      ];
 
-    for (const pattern of timePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        time = match[0];
-        break;
+      for (const pattern of timePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          time = match[0];
+          break;
+        }
       }
     }
 
@@ -315,7 +437,6 @@ Need more help? Just ask!`;
 Please confirm the appointment details:
 
 📍 **Institute:** ${data.institute_name}
-📞 **Phone:** ${data.institute_phone}
 💇 **Service:** ${data.service}
 📅 **Date:** ${data.preferred_date || 'Flexible'}
 ⏰ **Time:** ${data.preferred_time || 'Flexible'}

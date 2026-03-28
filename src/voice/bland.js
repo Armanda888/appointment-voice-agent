@@ -85,7 +85,7 @@ CUSTOMER INFORMATION:
 YOUR TASK:
 1. Call ${institute_name} and introduce yourself politely
 2. Explain that you're calling to schedule a ${service} appointment for ${customer_name || 'a customer'}
-3. Ask about availability for ${preferred_date || 'the earliest available date'} around ${preferred_time || 'any convenient time'}
+${this.formatTimePreference(preferred_date, preferred_time)}
 4. If the preferred time is not available, negotiate alternative times that work
 5. Once an appointment is scheduled, confirm ALL details:
    - Date of appointment
@@ -309,48 +309,59 @@ CONVERSATION STYLE:
       }
     }
 
-    // Extract date patterns (basic regex for common formats)
+    // Extract date patterns - look for the LAST date mentioned (final agreement)
     const datePatterns = [
-      /(tomorrow|today)/i,
-      /(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i,
-      /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/,
-      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?/i,
-      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty|thirtieth)/i
+      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty[\s-]?first|twenty[\s-]?second|twenty[\s-]?third|thirtieth)/gi,
+      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?/gi,
+      /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/g,
+      /(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi,
+      /(tomorrow|today)/gi
     ];
 
+    // Find all date matches and use the LAST one (final agreed date)
+    let lastDateMatch = null;
     for (const pattern of datePatterns) {
-      const match = transcript.match(pattern);
-      if (match) {
-        details.date = match[0];
-        logger.info(`Extracted date from transcript: ${details.date}`);
-        break;
+      let match;
+      while ((match = pattern.exec(transcript)) !== null) {
+        lastDateMatch = match[0];
       }
     }
+    
+    if (lastDateMatch) {
+      details.date = lastDateMatch;
+      logger.info(`Extracted date from transcript (last match): ${details.date}`);
+    }
 
-    // Extract time patterns - expanded to catch more formats
+    // Extract time patterns - look for the LAST time mentioned (final agreement)
     const timePatterns = [
-      /(\d{1,2}):(\d{2})\s*(am|pm|a m|p m)/i,
-      /(\d{1,2})\s*(am|pm|a m|p m)/i,
-      /(morning|afternoon|evening|noon|midnight)/i,
-      /(\d{1,2})\s*o\'?clock/i,
-      /(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm|a m|p m)/i
+      /(\d{1,2}):(\d{2})\s*(am|pm|a m|p m)/gi,
+      /(\d{1,2})\s*(am|pm|a m|p m)/gi,
+      /(morning|afternoon|evening|noon|midnight)/gi,
+      /(\d{1,2})\s*o\'?clock/gi,
+      /(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm|a m|p m)/gi
     ];
 
+    // Find all time matches and use the LAST one (final agreed time)
+    let lastTimeMatch = null;
     for (const pattern of timePatterns) {
-      const match = transcript.match(pattern);
-      if (match) {
-        details.time = match[0];
-        logger.info(`Extracted time from transcript: ${details.time}`);
-        break;
+      let match;
+      while ((match = pattern.exec(transcript)) !== null) {
+        lastTimeMatch = match[0];
       }
+    }
+    
+    if (lastTimeMatch) {
+      details.time = lastTimeMatch;
+      logger.info(`Extracted time from transcript (last match): ${details.time}`);
     }
     
     // If no time found, try to extract from phrases like "at 3" or "around 2"
     if (!details.time) {
-      const looseTimeMatch = transcript.match(/\b(at|around|about)\s+(\d{1,2})\b/i);
-      if (looseTimeMatch) {
-        details.time = looseTimeMatch[2];
-        logger.info(`Extracted loose time from transcript: ${details.time}`);
+      const looseTimeMatches = [...transcript.matchAll(/\b(at|around|about)\s+(\d{1,2})\b/gi)];
+      if (looseTimeMatches.length > 0) {
+        // Use the last match
+        details.time = looseTimeMatches[looseTimeMatches.length - 1][2];
+        logger.info(`Extracted loose time from transcript (last match): ${details.time}`);
       }
     }
 
@@ -384,6 +395,27 @@ CONVERSATION STYLE:
       logger.error(`Error ending call ${callId}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Format time preference for the AI task
+   * @param {string} preferred_date - Preferred date
+   * @param {string} preferred_time - Preferred time (may be a range like "9am - 5pm")
+   * @returns {string} - Formatted time preference instruction
+   */
+  formatTimePreference(preferred_date, preferred_time) {
+    const date = preferred_date || 'the earliest available date';
+    
+    if (!preferred_time || preferred_time === 'Flexible') {
+      return `3. Ask about availability for ${date} at any convenient time`;
+    }
+    
+    // Check if it's a time range (contains " - ")
+    if (preferred_time.includes(' - ')) {
+      return `3. Ask about availability for ${date} anytime between ${preferred_time}`;
+    }
+    
+    return `3. Ask about availability for ${date} around ${preferred_time}`;
   }
 }
 
