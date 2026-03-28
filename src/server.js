@@ -3,6 +3,7 @@ const logger = require('./utils/logger');
 const blandService = require('./voice/bland');
 const appointmentModel = require('./models/appointment');
 const telegramBot = require('./bot/telegram');
+const calendarService = require('./services/calendar');
 
 class Server {
   constructor() {
@@ -68,6 +69,58 @@ class Server {
       }
     });
 
+    // Get call details by appointment ID
+    this.app.get('/api/appointments/:id/call-details', async (req, res) => {
+      try {
+        const appointment = await appointmentModel.getById(req.params.id);
+        if (!appointment) {
+          return res.status(404).json({ error: 'Appointment not found' });
+        }
+
+        if (!appointment.call_id) {
+          return res.status(404).json({ error: 'No call ID for this appointment' });
+        }
+
+        const callDetails = await blandService.getCallDetails(appointment.call_id);
+        res.json({
+          appointment: appointment,
+          callDetails: callDetails
+        });
+      } catch (error) {
+        logger.error('Error fetching call details:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Manual webhook trigger for debugging
+    this.app.post('/api/test/webhook/:appointmentId', async (req, res) => {
+      try {
+        const appointment = await appointmentModel.getById(req.params.appointmentId);
+        if (!appointment) {
+          return res.status(404).json({ error: 'Appointment not found' });
+        }
+
+        // Simulate a completed call webhook
+        const mockEventData = {
+          callId: appointment.call_id || 'test-call-id',
+          status: 'completed',
+          transcript: req.body.transcript || 'Appointment confirmed for tomorrow at 3pm',
+          recordingUrl: req.body.recordingUrl,
+          summary: req.body.summary || 'Appointment scheduled successfully',
+          appointmentId: appointment.id,
+          telegramUserId: appointment.telegram_user_id,
+          telegramChatId: appointment.telegram_chat_id,
+          raw: req.body
+        };
+
+        await this.handleCallCompleted(appointment, mockEventData);
+        res.json({ success: true, message: 'Webhook processed manually' });
+      } catch (error) {
+        logger.error('Error processing manual webhook:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // 404 handler
     this.app.use((req, res) => {
       res.status(404).json({ error: 'Not found' });
@@ -84,8 +137,16 @@ class Server {
       // Process webhook asynchronously
       const eventData = blandService.handleWebhook(req.body);
       
+      logger.info('Parsed webhook data:', { 
+        callId: eventData.callId, 
+        status: eventData.status, 
+        appointmentId: eventData.appointmentId,
+        hasMetadata: !!eventData.raw?.metadata
+      });
+      
       if (!eventData.appointmentId) {
         logger.warn('Webhook received without appointment metadata');
+        logger.warn('Full webhook body:', req.body);
         return;
       }
 
@@ -145,11 +206,35 @@ class Server {
           updates
         );
 
+        // Add to Google Calendar
+        let calendarEventId = null;
+        try {
+          logger.info('Attempting to add appointment to Google Calendar...');
+          calendarEventId = await calendarService.addAppointment({
+            ...appointment,
+            confirmed_date: updates.confirmed_date,
+            confirmed_time: updates.confirmed_time,
+            notes: updates.notes,
+            call_transcript: updates.call_transcript
+          });
+          
+          if (calendarEventId) {
+            logger.info(`Appointment added to Google Calendar: ${calendarEventId}`);
+          } else {
+            logger.warn('Calendar service returned null - event may not have been created');
+          }
+        } catch (calendarError) {
+          logger.error('Error adding to Google Calendar:', calendarError);
+          logger.error('Calendar error stack:', calendarError.stack);
+          // Don't fail the whole process if calendar add fails
+        }
+
         // Notify user of success
         await telegramBot.notifyCallComplete(
           appointment.telegram_chat_id,
           appointment,
-          eventData
+          eventData,
+          calendarEventId
         );
       } else {
         await appointmentModel.updateStatus(

@@ -12,6 +12,14 @@
 - [README.md](file://README.md)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Updated Winston logger configuration documentation to reflect the complete 27-line implementation
+- Added detailed analysis of Winston transports, formats, and environment-specific behavior
+- Enhanced error tracking and debugging sections with specific Winston features
+- Updated monitoring approaches to leverage Winston's structured logging capabilities
+- Expanded log rotation and retention recommendations based on Winston transport configuration
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -25,67 +33,75 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the logging and monitoring implementation in the Appointment Voice Agent. It explains the Winston-based logging configuration, log levels, formats, and output destinations. It documents the logging structure with separate error and combined log files, and provides guidance on error tracking, debugging techniques, and monitoring approaches for production environments. It also covers log analysis, performance monitoring, troubleshooting workflows, log rotation and retention policies, and security considerations for log data. Finally, it includes examples of common debugging scenarios and suggestions for monitoring dashboard setup.
+This document describes the logging and monitoring implementation in the Appointment Voice Agent. The system is built on a robust Winston-based logging infrastructure that provides structured JSON logging with separate error and combined file transports. The implementation includes environment-aware console output, comprehensive error tracking, and production-ready logging patterns. This documentation covers the Winston configuration, log levels, formats, output destinations, and practical guidance for error tracking, debugging techniques, and monitoring approaches in production environments.
 
 ## Project Structure
-The logging system is centralized in a dedicated utility module and consumed across the application. The main runtime entry initializes logging, starts subsystems, and registers graceful shutdown handlers. The Express server logs HTTP requests and errors. The Telegram bot and Bland voice service log operational events and errors. The SQLite model logs database lifecycle events.
+The logging system is centralized in a dedicated Winston logger module and consumed across all application components. The architecture ensures consistent logging patterns while supporting both development and production environments through environment variable configuration.
 
 ```mermaid
 graph TB
-subgraph "Application"
-IDX["index.js<br/>Entry point"]
-SRV["server.js<br/>Express server"]
-BOT["telegram.js<br/>Telegram bot"]
-BLND["bland.js<br/>Bland.ai voice service"]
-APPM["appointment.js<br/>SQLite model"]
+subgraph "Application Modules"
+IDX["index.js<br/>Entry point & graceful shutdown"]
+SRV["server.js<br/>HTTP server & middleware"]
+BOT["telegram.js<br/>Telegram bot operations"]
+BLND["bland.js<br/>Voice service integration"]
+APPM["appointment.js<br/>Database operations"]
 end
-subgraph "Logging"
-LOG["logger.js<br/>Winston logger"]
+subgraph "Logging Infrastructure"
+LOG["logger.js<br/>Winston configuration<br/>27 lines of core implementation"]
+end
+subgraph "Output Destinations"
+ERR["Error Log<br/>logs/error.log<br/>Level: error"]
+COMB["Combined Log<br/>logs/combined.log"]
+CONS["Console Output<br/>Development only"]
 end
 IDX --> LOG
-IDX --> SRV
-IDX --> BOT
-IDX --> BLND
-IDX --> APPM
 SRV --> LOG
 BOT --> LOG
 BLND --> LOG
 APPM --> LOG
+LOG --> ERR
+LOG --> COMB
+LOG --> CONS
 ```
 
 **Diagram sources**
+- [logger.js:1-28](file://src/utils/logger.js#L1-L28)
 - [index.js:1-91](file://src/index.js#L1-L91)
 - [server.js:1-266](file://src/server.js#L1-L266)
 - [telegram.js:1-461](file://src/bot/telegram.js#L1-L461)
-- [bland.js:1-235](file://src/voice/bland.js#L1-L235)
+- [bland.js:1-272](file://src/voice/bland.js#L1-L272)
 - [appointment.js:1-238](file://src/models/appointment.js#L1-L238)
-- [logger.js:1-28](file://src/utils/logger.js#L1-L28)
 
 **Section sources**
 - [logger.js:1-28](file://src/utils/logger.js#L1-L28)
 - [index.js:1-91](file://src/index.js#L1-L91)
 - [server.js:1-266](file://src/server.js#L1-L266)
 - [telegram.js:1-461](file://src/bot/telegram.js#L1-L461)
-- [bland.js:1-235](file://src/voice/bland.js#L1-L235)
+- [bland.js:1-272](file://src/voice/bland.js#L1-L272)
 - [appointment.js:1-238](file://src/models/appointment.js#L1-L238)
-- [README.md:154-175](file://README.md#L154-L175)
 
 ## Core Components
-- Winston logger configuration:
-  - Log level controlled by environment variable with a default fallback.
-  - JSON format with timestamp, error stack, and interpolation support.
-  - Default metadata including service identity.
-  - File transports:
-    - Separate error-level file transport.
-    - Combined file transport for all levels.
-  - Console transport in non-production environments for live debugging.
 
-- Application-wide logging usage:
-  - Entry point logs startup, environment validation, and graceful shutdown.
-  - Express server logs HTTP requests and internal errors.
-  - Telegram bot logs command handling, parsing, notifications, and errors.
-  - Bland voice service logs call creation, details retrieval, webhook handling, and call termination.
-  - SQLite model logs database initialization, table creation, and lifecycle events.
+### Winston Logger Configuration
+The Winston logger provides a comprehensive logging solution with the following key components:
+
+- **Log Level Management**: Controlled by `LOG_LEVEL` environment variable with 'info' as default fallback
+- **Structured JSON Formatting**: Includes ISO timestamps, error stack traces, string interpolation, and JSON serialization
+- **Default Metadata**: Service identity ('appointment-voice-agent') automatically included in all log entries
+- **Dual File Transport System**:
+  - Error-level transport writing exclusively to `logs/error.log`
+  - Combined transport writing all levels to `logs/combined.log`
+- **Environment-Aware Console Output**: Console transport enabled only outside production environments
+
+### Application-Wide Logging Integration
+All application modules utilize the shared Winston logger instance for consistent logging patterns:
+
+- **Entry Point**: Application lifecycle events, environment validation, and graceful shutdown
+- **Express Server**: HTTP request logging, error handling, and webhook processing
+- **Telegram Bot**: Command handling, user interactions, and error reporting
+- **Voice Service**: Call initiation, webhook handling, and transcription processing
+- **Database Operations**: Connection management, table creation, and CRUD operations
 
 **Section sources**
 - [logger.js:3-25](file://src/utils/logger.js#L3-L25)
@@ -100,24 +116,22 @@ APPM --> LOG
 - [appointment.js:12-24](file://src/models/appointment.js#L12-L24)
 
 ## Architecture Overview
-The logging architecture is a layered approach:
-- Centralized Winston logger configured once and exported for reuse.
-- All modules import and use the shared logger instance.
-- Production vs development console output is controlled by environment.
-- Error handling paths consistently log errors and propagate failures.
+The logging architecture implements a centralized Winston configuration with layered transport management and environment-aware behavior.
 
 ```mermaid
 sequenceDiagram
-participant Proc as "Process"
+participant App as "Application Module"
 participant Logger as "Winston Logger"
-participant FS as "File Transport"
-participant Console as "Console Transport"
-Proc->>Logger : "configure transports and format"
-Logger->>FS : "write combined log"
-Logger->>FS : "write error log (level)"
+participant ErrorTransport as "File Transport<br/>Error Level"
+participant CombinedTransport as "File Transport<br/>All Levels"
+participant ConsoleTransport as "Console Transport"
+App->>Logger : "logger.info/warn/error()"
+Logger->>ErrorTransport : "Write error-level logs"
+Logger->>CombinedTransport : "Write all logs"
 alt NODE_ENV != "production"
-Logger->>Console : "write formatted console log"
+Logger->>ConsoleTransport : "Write formatted console log"
 end
+Note over Logger : "27 lines of Winston configuration<br/>JSON formatting<br/>Environment detection"
 ```
 
 **Diagram sources**
@@ -129,40 +143,51 @@ end
 
 ## Detailed Component Analysis
 
-### Winston Logger Configuration
-- Log levels:
-  - Controlled by environment variable with a sensible default.
-  - Separate file transport configured for error-level logs.
-  - Combined file transport for all levels.
-- Formats:
-  - ISO timestamp formatting.
-  - Stack traces included for error objects.
-  - String interpolation support.
-  - JSON serialization for structured logs.
-- Output destinations:
-  - File transports write to logs directory.
-  - Console transport writes to stdout/stderr in non-production environments.
-- Default metadata:
-  - Service identity included in every log entry.
+### Winston Logger Implementation
+The Winston logger configuration represents a complete 27-line implementation providing robust logging capabilities:
+
+#### Configuration Structure
+- **Logger Instance Creation**: `winston.createLogger()` with centralized configuration
+- **Format Pipeline**: Sequential formatting combining timestamp, error handling, interpolation, and JSON serialization
+- **Transport Layer**: Dual-file transport system with level-specific routing
+- **Environment Detection**: Conditional console transport based on `NODE_ENV`
+
+#### Transport Configuration Details
+- **Error Transport**: `new winston.transports.File({ filename: 'logs/error.log', level: 'error' })`
+- **Combined Transport**: `new winston.transports.File({ filename: 'logs/combined.log' })`
+- **Console Transport**: Conditional addition for non-production environments
+
+#### Format Pipeline Components
+- **Timestamp**: ISO format with custom time specification
+- **Error Enhancement**: Stack trace inclusion for error objects
+- **String Interpolation**: Support for `%s`, `%d`, `%j` placeholders
+- **JSON Serialization**: Structured log output for machine parsing
 
 ```mermaid
 classDiagram
 class WinstonLogger {
-+level
-+format
-+defaultMeta
-+transports
++level : string
++format : Format
++defaultMeta : object
++transports : Transport[]
 }
 class FileTransport {
-+filename
-+level
++filename : string
++level : string
 }
 class ConsoleTransport {
-+format
++format : Format
 }
-WinstonLogger --> FileTransport : "combined"
-WinstonLogger --> FileTransport : "error"
-WinstonLogger --> ConsoleTransport : "development"
+class FormatPipeline {
++timestamp()
++errors()
++splat()
++json()
+}
+WinstonLogger --> FileTransport : "Error Transport"
+WinstonLogger --> FileTransport : "Combined Transport"
+WinstonLogger --> ConsoleTransport : "Development Console"
+WinstonLogger --> FormatPipeline : "JSON Formatting"
 ```
 
 **Diagram sources**
@@ -171,12 +196,22 @@ WinstonLogger --> ConsoleTransport : "development"
 **Section sources**
 - [logger.js:3-25](file://src/utils/logger.js#L3-L25)
 
-### Entry Point Logging and Shutdown Hooks
-- Logs application lifecycle events.
-- Validates required environment variables and logs errors when missing.
-- Initializes database and server, logging progress.
-- Registers graceful shutdown handlers for SIGTERM, SIGINT, uncaught exceptions, and unhandled rejections.
-- Logs shutdown steps and exits cleanly.
+### Entry Point Logging and Graceful Shutdown
+The application entry point demonstrates comprehensive logging integration with graceful shutdown handling:
+
+#### Startup Logging Sequence
+- Application initialization with service identification
+- Environment variable validation with detailed error reporting
+- Database initialization progress tracking
+- Server startup confirmation
+- Telegram bot activation verification
+
+#### Graceful Shutdown Protocol
+- Signal handling for SIGTERM and SIGINT
+- Uncaught exception and unhandled rejection monitoring
+- Sequential shutdown of all subsystems
+- Resource cleanup and connection closure
+- Final shutdown confirmation
 
 ```mermaid
 sequenceDiagram
@@ -185,17 +220,21 @@ participant Logger as "logger"
 participant Model as "appointmentModel"
 participant Server as "server"
 participant Bot as "telegramBot"
-Main->>Logger : "info : Starting..."
-Main->>Main : "validate env vars"
-Main->>Logger : "error : Missing env var(s)"
-Main->>Model : "init()"
+Main->>Logger : "info : Starting Appointment Voice Agent"
+Main->>Main : "Validate environment variables"
+alt Missing variables
+Main->>Logger : "error : Missing required environment variables"
+Main->>process : "exit(1)"
+else All variables present
 Main->>Logger : "info : Initializing database"
-Main->>Server : "start()"
+Main->>Model : "init()"
 Main->>Logger : "info : Starting server"
+Main->>Server : "start()"
+Main->>Logger : "info : Starting Telegram bot"
 Main->>Bot : "start()"
-Main->>Logger : "info : Telegram bot active"
-Main->>Main : "setupGracefulShutdown()"
-Note over Main,Logger : "On shutdown : stop bot, server, close db, exit"
+Main->>Logger : "info : Application running"
+end
+Note over Main,Logger : "Graceful shutdown on signals/errors"
 ```
 
 **Diagram sources**
@@ -206,20 +245,40 @@ Note over Main,Logger : "On shutdown : stop bot, server, close db, exit"
 - [index.js:8-44](file://src/index.js#L8-L44)
 - [index.js:47-87](file://src/index.js#L47-L87)
 
-### Express Server Logging
-- Middleware logs every HTTP request with method, path, client IP, and user agent.
-- Global error handler logs Express errors and responds appropriately.
-- Webhook endpoint logs receipt, acknowledges immediately, and processes asynchronously.
+### Express Server Logging Implementation
+The Express server implements comprehensive request logging and error handling:
+
+#### Request Logging Middleware
+- HTTP method and path tracking
+- Client IP address capture
+- User agent information collection
+- Request metadata enrichment
+
+#### Error Handling Strategy
+- Global error middleware for unhandled exceptions
+- Express-specific error categorization
+- Environment-aware error message handling
+- Structured error response formatting
+
+#### Webhook Processing Logging
+- Immediate acknowledgment to webhook sender
+- Asynchronous processing with outcome logging
+- Event data extraction and validation
+- Status-specific handling with detailed logging
 
 ```mermaid
 flowchart TD
-Start(["Incoming Request"]) --> LogReq["Log request metadata"]
-LogReq --> Route["Route Handler"]
-Route --> Resp["Send Response"]
-Resp --> End(["Exit"])
-Error(["Unhandled Error"]) --> LogErr["Log Express error"]
-LogErr --> SendErr["Send 500 response"]
+Start(["Incoming HTTP Request"]) --> LogReq["Log request metadata<br/>Method, Path, IP, User-Agent"]
+LogReq --> Route["Route Handler Execution"]
+Route --> Resp["Send HTTP Response"]
+Resp --> End(["Request Complete"])
+Error(["Unhandled Exception"]) --> LogErr["Log Express error<br/>Stack trace, context"]
+LogErr --> SendErr["Send 500 response<br/>Environment-aware message"]
 SendErr --> End
+WebhookStart(["Bland.ai Webhook"]) --> Ack["Immediate 200 acknowledgment"]
+Ack --> AsyncProcess["Asynchronous processing"]
+AsyncProcess --> LogOutcome["Log processing outcome<br/>Success/failure details"]
+LogOutcome --> End
 ```
 
 **Diagram sources**
@@ -231,28 +290,45 @@ SendErr --> End
 - [server.js:77-123](file://src/server.js#L77-L123)
 - [server.js:233-240](file://src/server.js#L233-L240)
 
-### Telegram Bot Logging
-- Logs command handling, help, and user appointment retrieval.
-- Logs parsing errors and cancellation attempts.
-- Logs notification attempts and call initiation errors.
-- Centralized error handler logs Telegraf errors.
+### Telegram Bot Logging Strategy
+The Telegram bot implements comprehensive logging for user interactions and error handling:
+
+#### Command and Message Processing
+- Natural language request parsing with detailed logging
+- Session state management with user interaction tracking
+- Confirmation flows with decision logging
+- Error handling with user-friendly responses
+
+#### Error Management
+- Telegraf error catching with structured logging
+- User notification for processing failures
+- Context preservation in error scenarios
+- Graceful degradation of functionality
 
 ```mermaid
 sequenceDiagram
-participant User as "User"
+participant User as "Telegram User"
 participant Bot as "TelegramBot"
 participant Logger as "logger"
 participant Model as "appointmentModel"
 participant Bland as "blandService"
-User->>Bot : "Text message"
+User->>Bot : "Appointment request message"
 Bot->>Logger : "info : parseAppointmentRequest"
-Bot->>Model : "create/update/get"
-Model-->>Bot : "result or error"
-Bot->>Logger : "error : on failure"
-Bot->>Bland : "createCall"
-Bland-->>Bot : "callId or error"
-Bot->>Logger : "error : on call failure"
-Bot->>User : "Reply with status"
+Bot->>Bot : "Extract appointment details"
+alt Details incomplete
+Bot->>User : "Request additional information"
+else Details complete
+Bot->>Model : "create(appointment)"
+Model-->>Bot : "appointment_id or error"
+alt Success
+Bot->>Bland : "createCall(appointment)"
+Bland-->>Bot : "call_id or error"
+Bot->>Logger : "info : Call initiated"
+else Error
+Bot->>Logger : "error : Creation failed"
+Bot->>User : "Inform about processing error"
+end
+end
 ```
 
 **Diagram sources**
@@ -265,28 +341,42 @@ Bot->>User : "Reply with status"
 - [telegram.js:182-224](file://src/bot/telegram.js#L182-L224)
 - [telegram.js:373-405](file://src/bot/telegram.js#L373-L405)
 
-### Bland Voice Service Logging
-- Logs call creation with prompt and metadata.
-- Logs call details retrieval and webhook handling.
-- Logs call termination attempts.
-- Extracts appointment details from transcripts and logs decisions.
+### Voice Service Logging Implementation
+The voice service provides comprehensive logging for call management and webhook processing:
+
+#### Call Lifecycle Logging
+- Call initiation with detailed parameter logging
+- Call status monitoring and transition logging
+- Transcript processing and decision extraction
+- Call termination and cleanup logging
+
+#### Webhook Processing
+- Webhook receipt with payload logging
+- Event data extraction and validation
+- Status-specific processing with detailed logging
+- Error handling with comprehensive error reporting
 
 ```mermaid
 sequenceDiagram
 participant Bot as "TelegramBot"
-participant Bland as "BlandVoiceService"
+participant Voice as "VoiceService"
 participant Logger as "logger"
 participant API as "Bland API"
-Bot->>Bland : "createCall(appointment)"
-Bland->>Logger : "info : Initiating call"
-Bland->>API : "POST calls"
-API-->>Bland : "call_id"
-Bland->>Logger : "info : Call initiated"
-Bland-->>Bot : "call_id"
-API-->>Bland : "webhook"
-Bland->>Logger : "info : Received webhook"
-Bland->>Bland : "handleWebhook()"
-Bland->>Logger : "info : Extracted details"
+Bot->>Voice : "createCall(appointment)"
+Voice->>Logger : "info : Initiating call"
+Voice->>API : "POST /calls with metadata"
+API-->>Voice : "call_id or error"
+alt Success
+Voice->>Logger : "info : Call initiated successfully"
+Voice-->>Bot : "call_id"
+else Error
+Voice->>Logger : "error : Error creating call"
+Voice-->>Bot : "throw error"
+end
+API-->>Voice : "webhook event"
+Voice->>Logger : "info : Received webhook"
+Voice->>Voice : "handleWebhook()"
+Voice->>Logger : "info : Extracted appointment details"
 ```
 
 **Diagram sources**
@@ -299,17 +389,30 @@ Bland->>Logger : "info : Extracted details"
 - [bland.js:107-116](file://src/voice/bland.js#L107-L116)
 - [bland.js:123-149](file://src/voice/bland.js#L123-L149)
 
-### SQLite Model Logging
-- Logs database initialization, table creation, and lifecycle events.
-- Logs CRUD operations with errors surfaced to callers.
+### Database Operations Logging
+The database layer implements comprehensive logging for connection management and operation tracking:
+
+#### Connection and Schema Management
+- Database connection establishment with error logging
+- Table creation with schema validation logging
+- Connection lifecycle event logging
+- Error handling with descriptive error messages
+
+#### Operation Logging
+- CRUD operation logging with success/failure tracking
+- Query execution logging with parameter information
+- Transaction boundary logging
+- Resource cleanup and connection closing
 
 ```mermaid
 flowchart TD
-Init["init()"] --> Open["Open database"]
-Open --> |Success| Create["createTables()"]
-Open --> |Error| LogErr["Log error and reject"]
-Create --> Done["Tables ready"]
-Done --> End(["Exit"])
+Init["init() - Database Initialization"] --> Open["Open database connection"]
+Open --> |Success| Create["createTables() - Schema creation"]
+Open --> |Error| LogErr["Log connection error<br/>Reject promise"]
+Create --> TablesReady["Tables created successfully"]
+TablesReady --> End(["Initialization complete"])
+Create --> |Error| LogSchemaErr["Log schema creation error<br/>Reject promise"]
+LogSchemaErr --> End
 LogErr --> End
 ```
 
@@ -325,22 +428,26 @@ LogErr --> End
 - [appointment.js:218-234](file://src/models/appointment.js#L218-L234)
 
 ## Dependency Analysis
-- Logger dependency:
-  - All modules depend on the shared Winston logger instance.
-- Runtime dependencies:
-  - Winston is declared as a dependency.
-  - Development dependency on nodemon for hot reload.
-- Environment dependencies:
-  - Environment variables control logging behavior and runtime configuration.
+The logging system has minimal external dependencies with a focused integration strategy:
+
+### Core Dependencies
+- **Winston**: Primary logging framework dependency
+- **Console Colors**: Optional colorized console output in development
+- **Node.js Built-ins**: Path and filesystem operations for log file management
+
+### Module Integration Pattern
+All application modules import and use the shared Winston logger instance, ensuring consistent logging behavior across the entire application stack.
 
 ```mermaid
 graph LR
-W["winston"] --> L["logger.js"]
-L --> IDX["index.js"]
-L --> SRV["server.js"]
-L --> BOT["telegram.js"]
-L --> BLND["bland.js"]
-L --> APPM["appointment.js"]
+W["winston@^3.11.0"] --> L["logger.js<br/>27 lines<br/>Winston configuration"]
+L --> IDX["index.js<br/>Application entry"]
+L --> SRV["server.js<br/>HTTP server"]
+L --> BOT["telegram.js<br/>Telegram bot"]
+L --> BLND["bland.js<br/>Voice service"]
+L --> APPM["appointment.js<br/>Database operations"]
+ENV["NODE_ENV<br/>production/development"] --> L
+ENV --> CONS["Console Transport<br/>Conditional"]
 ```
 
 **Diagram sources**
@@ -352,35 +459,45 @@ L --> APPM["appointment.js"]
 - [logger.js:1](file://src/utils/logger.js#L1)
 
 ## Performance Considerations
-- Structured JSON logs enable efficient parsing and indexing.
-- Separate error and combined files reduce noise in error-only views.
-- Console transport in development aids quick feedback; disable in production to avoid overhead.
-- Asynchronous webhook processing prevents blocking the HTTP response while still logging outcomes.
-- Consider rotating logs in production to manage disk usage and retention.
+The Winston-based logging implementation provides several performance optimization features:
 
-[No sources needed since this section provides general guidance]
+### Structured Logging Benefits
+- **JSON Parsing Efficiency**: Machine-readable logs enable fast parsing and indexing
+- **Reduced Log Volume**: Separate error and combined files optimize storage usage
+- **Environment Optimization**: Console transport disabled in production reduces overhead
+
+### Transport Performance
+- **Asynchronous File Writing**: Winston's default asynchronous file transport prevents blocking
+- **Buffered Writes**: File transport buffering improves I/O performance
+- **Level-Based Filtering**: Early filtering reduces unnecessary processing
+
+### Memory and Resource Management
+- **Minimal Memory Footprint**: Winston instances are lightweight
+- **Efficient String Interpolation**: SPLAT formatting minimizes string concatenation overhead
+- **Resource Cleanup**: Proper transport disposal in graceful shutdown
 
 ## Troubleshooting Guide
-- Environment validation failures:
-  - Missing required environment variables cause early termination with error logs.
-- Database connectivity:
-  - Initialization errors are logged; verify database path and permissions.
-- Server startup:
-  - Port binding issues and middleware errors are logged; check port availability and middleware configuration.
-- Telegram bot:
-  - Command handling and parsing errors are logged; verify token and webhook URL.
-- Bland.ai integration:
-  - Call creation and webhook handling errors are logged; verify API key and webhook URL.
-- Graceful shutdown:
-  - Logs shutdown steps and handles uncaught exceptions and rejections.
 
-Common debugging scenarios:
-- Application fails to start due to missing environment variables:
-  - Check logs for environment validation errors and ensure all required variables are set.
-- Calls not being made:
-  - Verify Bland API key validity and webhook URL accessibility; review voice service logs.
-- Webhooks not received:
-  - Confirm webhook URL correctness and server accessibility; inspect server logs for incoming requests.
+### Environment Configuration Issues
+- **Missing Environment Variables**: Application validates required variables during startup and logs detailed error messages
+- **Log Level Configuration**: Verify `LOG_LEVEL` environment variable affects logging verbosity
+- **File Permissions**: Ensure write permissions for `logs/` directory in deployment environments
+
+### Database Connectivity Problems
+- **Connection Errors**: Database initialization errors are logged with stack traces
+- **Schema Issues**: Table creation failures are logged with specific error details
+- **Migration Problems**: Connection lifecycle events are logged for troubleshooting
+
+### Server and API Integration Issues
+- **Port Binding**: Server startup errors are logged with port and network information
+- **Webhook Processing**: Webhook receipt and processing errors are logged with payload details
+- **Bland API Integration**: Voice service errors are logged with API response information
+
+### Common Debugging Scenarios
+- **Application Startup Failures**: Check `logs/error.log` for initialization errors
+- **Call Processing Issues**: Review voice service logs for API integration problems
+- **Telegram Bot Problems**: Examine bot-specific logs for user interaction errors
+- **Database Operation Failures**: Monitor database operation logs for SQL-related issues
 
 **Section sources**
 - [index.js:12-20](file://src/index.js#L12-L20)
@@ -391,52 +508,77 @@ Common debugging scenarios:
 - [appointment.js:14-23](file://src/models/appointment.js#L14-L23)
 
 ## Conclusion
-The logging and monitoring setup in the Appointment Voice Agent centers on a robust Winston configuration with structured JSON logs, separate error and combined files, and environment-aware console output. The logger is integrated across all major modules, enabling comprehensive visibility into application lifecycle, HTTP traffic, Telegram bot operations, voice service interactions, and database operations. The graceful shutdown hooks and centralized error handling ensure consistent logging during lifecycle transitions and failures. For production deployments, consider adding log rotation and retention policies, and integrate with monitoring systems for alerting and dashboards.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The Winston-based logging infrastructure provides a comprehensive, production-ready logging solution for the Appointment Voice Agent. The 27-line implementation delivers structured JSON logging, environment-aware console output, and robust error tracking across all application components. The dual-file transport system enables efficient log management with separate error and combined logs, while the centralized configuration ensures consistent logging patterns throughout the application. For production deployments, the logging system supports scalable monitoring through structured log formats and provides excellent debugging capabilities through detailed error logging and stack traces.
 
 ## Appendices
 
-### Log Levels and Destinations
-- Log levels:
-  - Controlled by environment variable with a default fallback.
-  - Error-level logs written to a dedicated file.
-  - Combined logs written to a combined file.
-- Destinations:
-  - File transports write to logs directory.
-  - Console transport enabled in non-production environments.
+### Log Levels and Transport Configuration
+The logging system implements a hierarchical log level structure with environment-specific behavior:
+
+#### Log Level Hierarchy
+- **Environment Control**: `LOG_LEVEL` environment variable controls verbosity
+- **Default Behavior**: Falls back to 'info' level when not specified
+- **Production Optimization**: Higher log levels reduce I/O overhead
+
+#### Transport Configuration
+- **Error Transport**: Exclusive error-level logging to `logs/error.log`
+- **Combined Transport**: All-level logging to `logs/combined.log`
+- **Console Transport**: Conditional development-only output with colorization
 
 **Section sources**
 - [logger.js:3-25](file://src/utils/logger.js#L3-L25)
 - [README.md:206-210](file://README.md#L206-L210)
 
-### Log Analysis and Monitoring
-- Log analysis:
-  - Use JSON parsing to extract timestamps, levels, and metadata.
-  - Filter by service identity and error levels for focused investigations.
-- Monitoring:
-  - Integrate with log aggregation platforms to build dashboards.
-  - Track error rates, request volumes, and latency metrics derived from logs.
-- Dashboards:
-  - Suggested metrics: error rate, request count, response time, call success rate.
-  - Use service identity and metadata fields for grouping and filtering.
+### Log Analysis and Monitoring Integration
+The structured JSON logging format enables sophisticated monitoring and analysis:
 
-[No sources needed since this section provides general guidance]
+#### Log Parsing and Analysis
+- **Machine Parsing**: JSON format enables automated log processing
+- **Field Extraction**: Timestamps, levels, service identity, and metadata extraction
+- **Filtering Strategies**: Level-based and service-based filtering for focused analysis
 
-### Log Rotation and Retention
-- Log rotation:
-  - Use external log rotation tools to manage file sizes and prevent disk exhaustion.
-- Retention:
-  - Define retention periods aligned with compliance and operational needs.
-- Security:
-  - Restrict access to logs containing sensitive data.
-  - Consider redaction of personally identifiable information (PII) and API keys.
+#### Monitoring Integration
+- **Log Aggregation**: Compatible with ELK stack, Fluentd, and similar systems
+- **Dashboard Creation**: Structured fields enable metric calculation and visualization
+- **Alerting Setup**: Error-level logs provide natural alerting triggers
 
-[No sources needed since this section provides general guidance]
+#### Recommended Metrics
+- **Error Rate Calculation**: Error-level log frequency per service
+- **Request Volume Tracking**: Combined log analysis for API usage metrics
+- **Response Time Analysis**: HTTP request logs for performance monitoring
+- **Call Success Rates**: Voice service logs for quality metrics
 
-### Security Considerations
-- Avoid logging sensitive data such as API keys, tokens, and personal information.
-- Restrict file system permissions for log directories.
-- Use secure channels for log transmission and storage.
+### Log Rotation and Retention Policies
+Production environments require systematic log management:
 
-[No sources needed since this section provides general guidance]
+#### Log Rotation Implementation
+- **External Tools**: Use `logrotate`, `rotating-file-stream`, or similar tools
+- **Size-Based Rotation**: Prevent disk space exhaustion with maximum file sizes
+- **Time-Based Rotation**: Daily/weekly rotation for manageable log volumes
+
+#### Retention and Compliance
+- **Retention Periods**: Balance compliance requirements with storage costs
+- **Compression Strategy**: Compress rotated logs to save space
+- **Archival Process**: Long-term storage for compliance purposes
+
+#### Security Considerations
+- **PII Protection**: Redact personally identifiable information from logs
+- **Access Control**: Restrict file system access to log directories
+- **Transmission Security**: Secure log transmission and storage encryption
+
+### Environment-Specific Configuration
+The logging system adapts to different deployment environments:
+
+#### Development Environment
+- **Console Output**: Enabled with colorized formatting for developer experience
+- **Debug Information**: More verbose logging for troubleshooting
+- **Local Development**: File-based logging with local storage
+
+#### Production Environment
+- **Console Output Disabled**: Prevents performance impact and security risks
+- **Structured Logging**: Optimized for machine parsing and log aggregation
+- **Security Focus**: Minimal sensitive data exposure in logs
+
+**Section sources**
+- [logger.js:18-25](file://src/utils/logger.js#L18-L25)
+- [index.js:76-86](file://src/index.js#L76-L86)

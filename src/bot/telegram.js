@@ -423,7 +423,7 @@ Should I proceed with the call?`;
     }
   }
 
-  async notifyCallComplete(telegramChatId, appointment, callDetails) {
+  async notifyCallComplete(telegramChatId, appointment, callDetails, calendarEventId = null) {
     const { confirmed, date, time } = blandService.extractAppointmentDetails(callDetails.transcript);
     
     let message = `📞 **Call Complete!**\n\n`;
@@ -434,6 +434,10 @@ Should I proceed with the call?`;
       message += `✅ **Appointment Confirmed!**\n`;
       if (date) message += `📅 **Date:** ${date}\n`;
       if (time) message += `⏰ **Time:** ${time}\n`;
+      
+      if (calendarEventId) {
+        message += `📆 **Added to your Google Calendar**\n`;
+      }
     } else {
       message += `⚠️ **Could not confirm appointment**\n`;
       message += `The representative may need you to call back or visit in person.\n`;

@@ -4,6 +4,7 @@ const logger = require('./utils/logger');
 const appointmentModel = require('./models/appointment');
 const server = require('./server');
 const telegramBot = require('./bot/telegram');
+const calendarService = require('./services/calendar');
 
 async function main() {
   try {
@@ -22,6 +23,13 @@ async function main() {
     // Initialize database
     logger.info('Initializing database...');
     await appointmentModel.init();
+
+    // Initialize Google Calendar service
+    logger.info('Initializing Google Calendar service...');
+    const calendarInitialized = await calendarService.init();
+    if (!calendarInitialized) {
+      logger.warn('Google Calendar not initialized. Appointments will not be added to calendar.');
+    }
 
     // Start Express server (needed for webhooks)
     logger.info('Starting server...');
@@ -45,13 +53,22 @@ async function main() {
 }
 
 function setupGracefulShutdown() {
+  let isShuttingDown = false;
+
   const shutdown = async (signal) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    
     logger.info(`Received ${signal}. Shutting down gracefully...`);
 
     try {
-      // Stop Telegram bot
-      telegramBot.stop();
-      logger.info('Telegram bot stopped');
+      // Stop Telegram bot (only if it was started)
+      try {
+        telegramBot.stop();
+        logger.info('Telegram bot stopped');
+      } catch (err) {
+        // Bot might not be running, ignore
+      }
 
       // Stop server
       await server.stop();
@@ -76,13 +93,13 @@ function setupGracefulShutdown() {
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
     logger.error('Uncaught exception:', error);
-    shutdown('uncaughtException');
+    process.exit(1);
   });
 
   // Handle unhandled promise rejections
   process.on('unhandledRejection', (reason, promise) => {
     logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-    shutdown('unhandledRejection');
+    process.exit(1);
   });
 }
 

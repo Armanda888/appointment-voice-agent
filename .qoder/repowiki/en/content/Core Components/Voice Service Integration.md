@@ -12,6 +12,15 @@
 - [package.json](file://package.json)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Updated Bland Voice Service section to reflect the complete 272-line implementation
+- Enhanced call creation process documentation with detailed API integration
+- Expanded transcript analysis section with comprehensive regex patterns
+- Added detailed webhook handling documentation with status routing
+- Updated integration patterns with Bland.ai Voice API including all parameters
+- Enhanced error handling and fallback strategies documentation
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -64,7 +73,7 @@ BOT --> TGBOT
 - [src/index.js:1-91](file://src/index.js#L1-L91)
 - [src/server.js:1-266](file://src/server.js#L1-L266)
 - [src/bot/telegram.js:1-461](file://src/bot/telegram.js#L1-L461)
-- [src/voice/bland.js:1-235](file://src/voice/bland.js#L1-L235)
+- [src/voice/bland.js:1-272](file://src/voice/bland.js#L1-L272)
 - [src/models/appointment.js:1-238](file://src/models/appointment.js#L1-L238)
 - [src/utils/logger.js:1-28](file://src/utils/logger.js#L1-L28)
 
@@ -80,7 +89,7 @@ BOT --> TGBOT
 - Logger: Provides structured logging across components.
 
 **Section sources**
-- [src/voice/bland.js:4-235](file://src/voice/bland.js#L4-L235)
+- [src/voice/bland.js:4-272](file://src/voice/bland.js#L4-L272)
 - [src/models/appointment.js:7-238](file://src/models/appointment.js#L7-L238)
 - [src/bot/telegram.js:6-461](file://src/bot/telegram.js#L6-L461)
 - [src/server.js:7-266](file://src/server.js#L7-L266)
@@ -111,14 +120,14 @@ Server->>Bot : "Notify user via Telegram"
 
 **Diagram sources**
 - [src/bot/telegram.js:373-405](file://src/bot/telegram.js#L373-L405)
-- [src/voice/bland.js:23-52](file://src/voice/bland.js#L23-L52)
+- [src/voice/bland.js:23-64](file://src/voice/bland.js#L23-L64)
 - [src/server.js:77-123](file://src/server.js#L77-L123)
 - [src/models/appointment.js:102-147](file://src/models/appointment.js#L102-L147)
 
 ## Detailed Component Analysis
 
 ### Bland Voice Service
-The Bland Voice Service encapsulates all Bland.ai integration logic:
+The Bland Voice Service encapsulates all Bland.ai integration logic with comprehensive functionality:
 - Call Creation: Builds a dynamic prompt based on appointment details and invokes the Bland.ai API with call initiation parameters.
 - Prompt Engineering: Generates a natural-sounding script tailored to the service type and user preferences.
 - Call Details Retrieval: Fetches live call details and transcripts from Bland.ai.
@@ -131,8 +140,10 @@ Key implementation patterns:
 - createCall builds a prompt and sets call options including phone number, task, voice selection, greeting wait, recording, webhook, and metadata.
 - buildPrompt composes a structured instruction set for the AI assistant.
 - handleWebhook extracts call_id, status, transcript, recording_url, summary, and metadata.
-- extractAppointmentDetails performs basic confirmation detection and date/time extraction using pattern matching.
+- extractAppointmentDetails performs comprehensive confirmation detection and date/time extraction using pattern matching.
 - getCallDetails and endCall wrap Bland.ai API calls with error logging.
+
+**Updated** Enhanced with complete 272-line implementation including advanced transcript analysis and comprehensive error handling.
 
 ```mermaid
 classDiagram
@@ -154,15 +165,15 @@ BlandVoiceService --> BlandClient : "uses"
 ```
 
 **Diagram sources**
-- [src/voice/bland.js:4-235](file://src/voice/bland.js#L4-L235)
+- [src/voice/bland.js:4-272](file://src/voice/bland.js#L4-L272)
 
 **Section sources**
-- [src/voice/bland.js:23-52](file://src/voice/bland.js#L23-L52)
-- [src/voice/bland.js:59-100](file://src/voice/bland.js#L59-L100)
-- [src/voice/bland.js:107-116](file://src/voice/bland.js#L107-L116)
-- [src/voice/bland.js:123-149](file://src/voice/bland.js#L123-L149)
-- [src/voice/bland.js:156-215](file://src/voice/bland.js#L156-L215)
-- [src/voice/bland.js:222-231](file://src/voice/bland.js#L222-L231)
+- [src/voice/bland.js:23-64](file://src/voice/bland.js#L23-L64)
+- [src/voice/bland.js:71-112](file://src/voice/bland.js#L71-L112)
+- [src/voice/bland.js:119-141](file://src/voice/bland.js#L119-L141)
+- [src/voice/bland.js:148-174](file://src/voice/bland.js#L148-L174)
+- [src/voice/bland.js:181-240](file://src/voice/bland.js#L181-L240)
+- [src/voice/bland.js:247-268](file://src/voice/bland.js#L247-L268)
 
 ### Appointment Model
 The Appointment Model manages SQLite operations:
@@ -231,7 +242,7 @@ Bot-->>User : "Call initiated with ID"
 - [src/bot/telegram.js:373-405](file://src/bot/telegram.js#L373-L405)
 - [src/models/appointment.js:62-100](file://src/models/appointment.js#L62-L100)
 - [src/models/appointment.js:102-147](file://src/models/appointment.js#L102-L147)
-- [src/voice/bland.js:23-52](file://src/voice/bland.js#L23-L52)
+- [src/voice/bland.js:23-64](file://src/voice/bland.js#L23-L64)
 
 **Section sources**
 - [src/bot/telegram.js:182-294](file://src/bot/telegram.js#L182-L294)
@@ -244,6 +255,8 @@ The Express server receives Bland.ai webhooks and processes call status updates:
 - Status routing: completed, failed/error, in_progress.
 - Transcript-based confirmation extraction and database updates.
 - User notifications via Telegram.
+
+**Updated** Enhanced with comprehensive status handling including detailed error processing and user notification flows.
 
 ```mermaid
 sequenceDiagram
@@ -276,7 +289,7 @@ end
 - [src/server.js:125-184](file://src/server.js#L125-L184)
 - [src/server.js:186-218](file://src/server.js#L186-L218)
 - [src/server.js:220-229](file://src/server.js#L220-L229)
-- [src/voice/bland.js:156-215](file://src/voice/bland.js#L156-L215)
+- [src/voice/bland.js:181-240](file://src/voice/bland.js#L181-L240)
 
 **Section sources**
 - [src/server.js:77-123](file://src/server.js#L77-L123)
@@ -285,11 +298,13 @@ end
 - [src/server.js:220-229](file://src/server.js#L220-L229)
 
 ### Transcript Processing Logic
-The transcript processing logic:
-- Confirmation Detection: Scans for phrases indicating successful booking.
-- Date Extraction: Matches day-of-week, numeric dates, and month-day patterns.
-- Time Extraction: Matches 12-hour clock formats and am/pm markers.
+The transcript processing logic performs comprehensive analysis:
+- Confirmation Detection: Scans for phrases indicating successful booking using multiple confirmation indicators.
+- Date Extraction: Matches day-of-week, numeric dates, and month-day patterns using regex patterns.
+- Time Extraction: Matches 12-hour clock formats and am/pm markers using sophisticated time patterns.
 - Output: Returns a structured object with confirmation flag, extracted date, and time.
+
+**Updated** Enhanced with comprehensive regex patterns for date and time extraction, including support for various formats.
 
 ```mermaid
 flowchart TD
@@ -301,12 +316,13 @@ TimeScan --> Output["Return { confirmed, date, time, notes }"]
 ```
 
 **Diagram sources**
-- [src/voice/bland.js:156-215](file://src/voice/bland.js#L156-L215)
+- [src/voice/bland.js:181-240](file://src/voice/bland.js#L181-L240)
 
 **Section sources**
-- [src/voice/bland.js:156-215](file://src/voice/bland.js#L156-L215)
+- [src/voice/bland.js:181-240](file://src/voice/bland.js#L181-L240)
 
 ### Integration Patterns with Bland.ai Voice API
+The Bland Voice Service integrates with Bland.ai's Voice API through comprehensive call management:
 - Call Initiation Parameters:
   - phone_number: Target institute phone number.
   - task: Dynamic prompt built from appointment details.
@@ -318,9 +334,11 @@ TimeScan --> Output["Return { confirmed, date, time, notes }"]
 - Recording Management: Recording URL is included in webhook payload for user access.
 - Status Polling: The system relies on webhooks rather than polling; call details can be fetched via getCallDetails for debugging.
 
+**Updated** Enhanced with complete API integration including detailed parameter configuration and error handling.
+
 **Section sources**
-- [src/voice/bland.js:27-39](file://src/voice/bland.js#L27-L39)
-- [src/voice/bland.js:107-116](file://src/voice/bland.js#L107-L116)
+- [src/voice/bland.js:25-37](file://src/voice/bland.js#L25-L37)
+- [src/voice/bland.js:119-141](file://src/voice/bland.js#L119-L141)
 - [src/server.js:60-69](file://src/server.js#L60-L69)
 
 ### Supported Service Types and Prompt Templates
@@ -336,15 +354,19 @@ Examples of supported service types:
 - Reservations (e.g., dinner tables)
 
 **Section sources**
-- [src/voice/bland.js:59-100](file://src/voice/bland.js#L59-L100)
+- [src/voice/bland.js:71-112](file://src/voice/bland.js#L71-L112)
 - [README.md:106-114](file://README.md#L106-L114)
 
 ### Error Handling, Retries, and Fallbacks
+The system implements comprehensive error handling and fallback strategies:
 - Startup Validation: Ensures required environment variables are present before starting.
 - Graceful Shutdown: Stops Telegram bot, Express server, and closes database connections.
 - Webhook Acknowledgment: Immediately responds to Bland.ai to prevent repeated delivery.
 - Status Updates: On failures, updates status to failed and notifies users with actionable messages.
 - Fallback Strategies: Provides guidance for common failure scenarios (invalid phone, voicemail, service unavailable).
+- API Error Handling: Comprehensive error handling for Bland.ai API calls with detailed logging.
+
+**Updated** Enhanced with detailed error handling patterns and comprehensive fallback strategies.
 
 **Section sources**
 - [src/index.js:12-20](file://src/index.js#L12-L20)
@@ -363,7 +385,7 @@ The application depends on external libraries and services:
 ```mermaid
 graph LR
 PKG["package.json"]
-BLND["bland"]
+BLND["bland-client-js-sdk"]
 TG["telegraf"]
 EX["express"]
 WINST["winston"]
@@ -399,4 +421,4 @@ Common issues and resolutions:
 - [README.md:212-228](file://README.md#L212-L228)
 
 ## Conclusion
-The voice service integration with Bland.ai provides a robust pipeline for automated appointment scheduling. By combining dynamic prompt engineering, reliable webhook handling, transcript-based confirmation extraction, and comprehensive error management, the system delivers a seamless user experience. The modular architecture ensures maintainability and extensibility for future enhancements.
+The voice service integration with Bland.ai provides a robust pipeline for automated appointment scheduling. By combining dynamic prompt engineering, reliable webhook handling, transcript-based confirmation extraction, and comprehensive error management, the system delivers a seamless user experience. The modular architecture ensures maintainability and extensibility for future enhancements. The complete 272-line implementation demonstrates comprehensive coverage of all aspects of voice service integration, from call initiation to final confirmation and user notification.

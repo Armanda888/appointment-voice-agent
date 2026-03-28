@@ -1,12 +1,10 @@
-const Bland = require('bland');
 const logger = require('../utils/logger');
 
 class BlandVoiceService {
   constructor() {
-    this.client = new Bland({
-      apiKey: process.env.BLAND_API_KEY,
-    });
+    this.apiKey = process.env.BLAND_API_KEY;
     this.webhookUrl = process.env.WEBHOOK_URL;
+    this.baseUrl = 'https://api.bland.ai/v1';
   }
 
   /**
@@ -27,7 +25,7 @@ class BlandVoiceService {
       const callOptions = {
         phone_number: appointment.institute_phone,
         task: prompt,
-        voice: 'nat',
+        voice: process.env.BLAND_VOICE || 'nat',
         wait_for_greeting: true,
         record: true,
         webhook: this.webhookUrl,
@@ -40,11 +38,25 @@ class BlandVoiceService {
 
       logger.info(`Initiating call to ${appointment.institute_phone} for ${appointment.institute_name}`);
       
-      const response = await this.client.calls.create(callOptions);
+      const response = await fetch(`${this.baseUrl}/calls`, {
+        method: 'POST',
+        headers: {
+          'Authorization': this.apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(callOptions)
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Bland API error: ${error}`);
+      }
+
+      const data = await response.json();
       
-      logger.info(`Call initiated successfully. Call ID: ${response.call_id}`);
+      logger.info(`Call initiated successfully. Call ID: ${data.call_id}`);
       
-      return response.call_id;
+      return data.call_id;
     } catch (error) {
       logger.error('Error creating Bland.ai call:', error);
       throw error;
@@ -107,8 +119,21 @@ CONVERSATION STYLE:
   async getCallDetails(callId) {
     try {
       logger.info(`Fetching call details for ${callId}`);
-      const response = await this.client.calls.get(callId);
-      return response;
+      
+      const response = await fetch(`${this.baseUrl}/calls/${callId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': this.apiKey
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Bland API error: ${error}`);
+      }
+
+      const data = await response.json();
+      return data;
     } catch (error) {
       logger.error(`Error fetching call details for ${callId}:`, error);
       throw error;
@@ -122,9 +147,38 @@ CONVERSATION STYLE:
    */
   handleWebhook(webhookData) {
     try {
-      logger.info('Received Bland.ai webhook:', webhookData);
+      logger.info('Received Bland.ai webhook. Keys:', Object.keys(webhookData).join(', '));
       
-      const { call_id, status, transcript, recording_url, metadata, summary } = webhookData;
+      // Bland.ai may send data in different formats
+      const { 
+        call_id, 
+        status, 
+        transcript, 
+        call_transcript,
+        concatenated_transcript,
+        recording_url, 
+        metadata, 
+        summary,
+        call_summary,
+        analysis,
+        recording_url: recUrl
+      } = webhookData;
+      
+      // Try multiple possible transcript fields
+      // Priority: concatenated_transcript (full conversation) > transcript/call_transcript > summary
+      let actualTranscript = concatenated_transcript || transcript || call_transcript;
+      
+      // If no transcript found, try to build from analysis or summary
+      if (!actualTranscript) {
+        actualTranscript = summary || call_summary || analysis?.transcript;
+      }
+      
+      logger.info('Extracted transcript length:', actualTranscript ? actualTranscript.length : 0);
+      if (actualTranscript) {
+        logger.info('Transcript preview:', actualTranscript.substring(0, 200));
+      } else {
+        logger.warn('No transcript found in webhook data');
+      }
       
       // Extract appointment info from metadata
       const appointmentId = metadata?.appointment_id;
@@ -134,9 +188,9 @@ CONVERSATION STYLE:
       return {
         callId: call_id,
         status: status,
-        transcript: transcript,
-        recordingUrl: recording_url,
-        summary: summary,
+        transcript: actualTranscript,
+        recordingUrl: recording_url || recUrl,
+        summary: summary || call_summary,
         appointmentId: appointmentId,
         telegramUserId: telegramUserId,
         telegramChatId: telegramChatId,
@@ -168,49 +222,139 @@ CONVERSATION STYLE:
 
     const lowerTranscript = transcript.toLowerCase();
     
-    // Check for confirmation indicators
+    // Debug: log the full transcript to see what we're working with
+    logger.info('Full transcript for confirmation check:', {
+      transcript: lowerTranscript.substring(0, 500),
+      containsSeeYou: lowerTranscript.includes('see you'),
+      containsWell: lowerTranscript.includes('well'),
+      containsConfirmed: lowerTranscript.includes('confirmed')
+    });
+    
+    // Check for confirmation indicators - expanded list
     const confirmationIndicators = [
       'appointment is confirmed',
       'you are all set',
       'see you then',
       'appointment scheduled',
       'booked for',
-      'confirmed for'
+      'confirmed for',
+      'you\'re confirmed',
+      'youre confirmed',
+      'we\'ll see you',
+      'well see you',
+      'we will see you',
+      'you\'re all set',
+      'youre all set',
+      'that works',
+      'perfect',
+      'great',
+      'sounds good',
+      'i\'ll put you down',
+      'ill put you down',
+      'you\'re booked',
+      'youre booked',
+      'we have you scheduled',
+      'you\'re scheduled',
+      'youre scheduled',
+      'see you on',
+      'see you then',
+      'see you next'
     ];
     
-    details.confirmed = confirmationIndicators.some(indicator => 
+    // Also check for negative indicators
+    const negativeIndicators = [
+      'not available',
+      'can\'t schedule',
+      'fully booked',
+      'no openings',
+      'we\'re closed',
+      'call back',
+      'voicemail',
+      'not taking appointments'
+    ];
+    
+    const hasConfirmation = confirmationIndicators.some(indicator => 
       lowerTranscript.includes(indicator)
     );
+    
+    const hasNegative = negativeIndicators.some(indicator =>
+      lowerTranscript.includes(indicator)
+    );
+    
+    logger.info('Confirmation check:', { 
+      hasConfirmation, 
+      hasNegative, 
+      transcriptLength: lowerTranscript.length,
+      transcriptPreview: lowerTranscript.substring(0, 100)
+    });
+    
+    // Consider it confirmed if we have positive indicators and no strong negative ones
+    details.confirmed = hasConfirmation && !hasNegative;
+    
+    // If no clear indicators but we have a date/time, it might still be confirmed
+    if (!details.confirmed && !hasNegative) {
+      // Check if the conversation seems to have reached a conclusion with scheduling
+      const hasDate = details.date !== null;
+      const hasTime = details.time !== null;
+      const hasGoodbye = lowerTranscript.includes('bye') || lowerTranscript.includes('goodbye');
+      const hasThanks = lowerTranscript.includes('thank you') || lowerTranscript.includes('thanks');
+      const hasSeeYou = lowerTranscript.includes('see you');
+      
+      logger.info('Fallback check:', { hasDate, hasTime, hasGoodbye, hasThanks, hasSeeYou });
+      
+      // Strong indicator: we have both date and time extracted from the conversation
+      if (hasDate && hasTime) {
+        logger.info('Fallback confirmation: found both date and time in transcript');
+        details.confirmed = true;
+      }
+    }
 
     // Extract date patterns (basic regex for common formats)
     const datePatterns = [
+      /(tomorrow|today)/i,
       /(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i,
       /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/,
-      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i
+      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?/i,
+      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty|thirtieth)/i
     ];
 
     for (const pattern of datePatterns) {
       const match = transcript.match(pattern);
       if (match) {
         details.date = match[0];
+        logger.info(`Extracted date from transcript: ${details.date}`);
         break;
       }
     }
 
-    // Extract time patterns
+    // Extract time patterns - expanded to catch more formats
     const timePatterns = [
-      /(\d{1,2}):(\d{2})\s*(am|pm)/i,
-      /(\d{1,2})\s*(am|pm)/i
+      /(\d{1,2}):(\d{2})\s*(am|pm|a m|p m)/i,
+      /(\d{1,2})\s*(am|pm|a m|p m)/i,
+      /(morning|afternoon|evening|noon|midnight)/i,
+      /(\d{1,2})\s*o\'?clock/i,
+      /(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm|a m|p m)/i
     ];
 
     for (const pattern of timePatterns) {
       const match = transcript.match(pattern);
       if (match) {
         details.time = match[0];
+        logger.info(`Extracted time from transcript: ${details.time}`);
         break;
       }
     }
+    
+    // If no time found, try to extract from phrases like "at 3" or "around 2"
+    if (!details.time) {
+      const looseTimeMatch = transcript.match(/\b(at|around|about)\s+(\d{1,2})\b/i);
+      if (looseTimeMatch) {
+        details.time = looseTimeMatch[2];
+        logger.info(`Extracted loose time from transcript: ${details.time}`);
+      }
+    }
 
+    logger.info(`Extracted appointment details:`, details);
     return details;
   }
 
@@ -222,7 +366,19 @@ CONVERSATION STYLE:
   async endCall(callId) {
     try {
       logger.info(`Ending call ${callId}`);
-      await this.client.calls.end(callId);
+      
+      const response = await fetch(`${this.baseUrl}/calls/${callId}/end`, {
+        method: 'POST',
+        headers: {
+          'Authorization': this.apiKey
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Bland API error: ${error}`);
+      }
+
       logger.info(`Call ${callId} ended successfully`);
     } catch (error) {
       logger.error(`Error ending call ${callId}:`, error);

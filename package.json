@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest"
+    "test": "jest",
+    "setup:calendar": "node scripts/setup-calendar.js"
   },
   "keywords": [
     "voice-agent",
@@ -18,10 +19,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "bland": "^2.0.0",
+    "bland-client-js-sdk": "^1.0.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "sqlite3": "^5.1.6",
+    "googleapis": "^128.0.0",
+    "sqlite3": "^6.0.1",
     "telegraf": "^4.15.0",
     "winston": "^3.11.0"
   },
